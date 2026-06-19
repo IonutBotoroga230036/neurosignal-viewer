@@ -1,30 +1,42 @@
 import { useRef, useEffect } from "react";
 
-// ActiView-style stacked traces on a single canvas. Reads the playhead every
-// frame from a ref and redraws, so it never triggers a React render during
-// playback. Decimates to ~1 point per pixel column for speed at 64 channels.
+// ActiView-style stacked traces. Reads the playhead each frame from a ref so it
+// never re-renders React during playback. Scroll wheel zooms: time by default,
+// amplitude (gain) with Shift held. Only the channels in `channelIndices` draw.
 
 export default function EEGTraceView({
   recording,
   playheadRef,
-  gain, // microvolts mapped to one channel band height
+  gain,
   windowSeconds,
+  channelIndices, // indices into recording.data to display
+  markers = [],   // colored markers: { time, label, color }
+  setGain,
+  setWindowSeconds,
 }) {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
 
-  // keep latest props for the animation loop without re-subscribing rAF
-  const stateRef = useRef({ recording, gain, windowSeconds });
-  stateRef.current = { recording, gain, windowSeconds };
+  const stateRef = useRef({});
+  stateRef.current = {
+    recording,
+    gain,
+    windowSeconds,
+    channelIndices,
+    markers,
+    setGain,
+    setWindowSeconds,
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
+    const wrap = wrapRef.current;
     const ctx = canvas.getContext("2d");
     let raf;
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
-      const rect = wrapRef.current.getBoundingClientRect();
+      const rect = wrap.getBoundingClientRect();
       canvas.width = Math.max(1, Math.floor(rect.width * dpr));
       canvas.height = Math.max(1, Math.floor(rect.height * dpr));
       canvas.style.width = rect.width + "px";
@@ -33,40 +45,50 @@ export default function EEGTraceView({
     };
     resize();
     const ro = new ResizeObserver(resize);
-    ro.observe(wrapRef.current);
+    ro.observe(wrap);
+
+    // scroll wheel: zoom time (plain) or gain (shift)
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const onWheel = (e) => {
+      e.preventDefault();
+      const st = stateRef.current;
+      const factor = e.deltaY > 0 ? 1.12 : 1 / 1.12;
+      if (e.shiftKey) {
+        st.setGain?.(clamp(Math.round(st.gain * factor), 5, 250));
+      } else {
+        st.setWindowSeconds?.(clamp(+(st.windowSeconds * factor).toFixed(1), 1, 30));
+      }
+    };
+    wrap.addEventListener("wheel", onWheel, { passive: false });
 
     const draw = () => {
-      const { recording, gain, windowSeconds } = stateRef.current;
-      const rect = wrapRef.current.getBoundingClientRect();
-      const W = rect.width;
-      const H = rect.height;
+      const { recording, gain, windowSeconds, channelIndices, markers } =
+        stateRef.current;
+      const rect = wrap.getBoundingClientRect();
+      const W = rect.width, H = rect.height;
       ctx.clearRect(0, 0, W, H);
-
       if (!recording) {
         raf = requestAnimationFrame(draw);
         return;
       }
 
-      const labelW = 52;
-      const axisH = 18;
-      const plotW = W - labelW;
-      const plotH = H - axisH;
+      const idx =
+        channelIndices && channelIndices.length
+          ? channelIndices
+          : recording.channelNames.map((_, i) => i);
 
-      const { channelNames, data, sfreq, duration } = recording;
-      const C = channelNames.length;
+      const labelW = 52, axisH = 18;
+      const plotW = W - labelW, plotH = H - axisH;
+      const { sfreq, duration, data, channelNames } = recording;
+      const C = idx.length;
       const bandH = plotH / C;
 
-      const t = playheadRef.current;
-      const tEnd = t; // playhead sits near the right edge
+      const tEnd = playheadRef.current;
       const playheadX = labelW + plotW * 0.85;
-      const secondsBeforePlayhead = windowSeconds * 0.85;
-      const tStart = tEnd - secondsBeforePlayhead;
+      const tStart = tEnd - windowSeconds * 0.85;
       const tWindowEnd = tStart + windowSeconds;
+      const timeToX = (time) => labelW + ((time - tStart) / windowSeconds) * plotW;
 
-      const timeToX = (time) =>
-        labelW + ((time - tStart) / windowSeconds) * plotW;
-
-      // alternating band backgrounds
       for (let c = 0; c < C; c++) {
         if (c % 2 === 0) {
           ctx.fillStyle = "rgba(255,255,255,0.015)";
@@ -74,46 +96,34 @@ export default function EEGTraceView({
         }
       }
 
-      // markers
-      if (recording.markers) {
-        ctx.strokeStyle = "rgba(196,74,74,0.35)";
-        ctx.lineWidth = 1;
-        for (const m of recording.markers) {
-          if (m.time < tStart || m.time > tWindowEnd) continue;
-          const x = timeToX(m.time);
-          ctx.beginPath();
-          ctx.moveTo(x, 0);
-          ctx.lineTo(x, plotH);
-          ctx.stroke();
-        }
+      // markers (colored), drawn full height
+      for (const m of markers) {
+        if (m.time < tStart || m.time > tWindowEnd) continue;
+        const x = timeToX(m.time);
+        ctx.strokeStyle = m.color || "#c4565699";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, plotH);
+        ctx.stroke();
       }
 
       // traces
       ctx.lineWidth = 1;
       ctx.strokeStyle = "#c9c6bd";
       const i0 = Math.max(0, Math.floor(tStart * sfreq));
-      const i1 = Math.min(
-        recording.nSamples - 1,
-        Math.ceil(tWindowEnd * sfreq)
-      );
-      const span = Math.max(1, i1 - i0);
-      const step = Math.max(1, Math.floor(span / plotW));
+      const i1 = Math.min(recording.nSamples - 1, Math.ceil(tWindowEnd * sfreq));
+      const step = Math.max(1, Math.floor((i1 - i0) / Math.max(1, plotW)));
 
       for (let c = 0; c < C; c++) {
         const mid = c * bandH + bandH / 2;
-        const ch = data[c];
+        const ch = data[idx[c]];
         ctx.beginPath();
         let first = true;
         for (let i = i0; i <= i1; i += step) {
-          const time = i / sfreq;
-          const x = timeToX(time);
+          const x = timeToX(i / sfreq);
           const y = mid - (ch[i] / gain) * (bandH / 2);
-          if (first) {
-            ctx.moveTo(x, y);
-            first = false;
-          } else {
-            ctx.lineTo(x, y);
-          }
+          if (first) { ctx.moveTo(x, y); first = false; } else ctx.lineTo(x, y);
         }
         ctx.stroke();
       }
@@ -123,8 +133,7 @@ export default function EEGTraceView({
       ctx.font = "10px 'JetBrains Mono', monospace";
       ctx.textBaseline = "middle";
       for (let c = 0; c < C; c++) {
-        const mid = c * bandH + bandH / 2;
-        ctx.fillText(channelNames[c], 6, mid);
+        ctx.fillText(channelNames[idx[c]], 6, c * bandH + bandH / 2);
       }
 
       // playhead
@@ -137,7 +146,6 @@ export default function EEGTraceView({
 
       // time axis
       ctx.fillStyle = "#8f8c84";
-      ctx.font = "10px 'JetBrains Mono', monospace";
       ctx.textBaseline = "top";
       for (let s = Math.ceil(tStart); s <= tWindowEnd; s++) {
         if (s < 0 || s > duration) continue;
@@ -157,6 +165,7 @@ export default function EEGTraceView({
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      wrap.removeEventListener("wheel", onWheel);
     };
   }, [playheadRef]);
 

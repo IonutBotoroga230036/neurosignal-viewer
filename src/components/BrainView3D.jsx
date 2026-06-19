@@ -107,7 +107,7 @@ export default function BrainView3D({ recording, playheadRef, colorRange = 40 })
 
   return (
     <div className="relative h-full w-full">
-      <Canvas camera={{ position: [0, 1.1, 2.4], fov: 45 }} dpr={[1, 2]}>
+      <Canvas camera={{ position: [0, 1.1, 2.8], fov: 45 }} dpr={[1, 2]}>
         <ambientLight intensity={0.7} />
         <directionalLight position={[3, 4, 5]} intensity={0.6} />
         <Head />
@@ -121,8 +121,8 @@ export default function BrainView3D({ recording, playheadRef, colorRange = 40 })
         )}
         <OrbitControls
           enablePan={false}
-          minDistance={1.6}
-          maxDistance={4}
+          minDistance={1.3}
+          maxDistance={7}
           rotateSpeed={0.6}
         />
       </Canvas>

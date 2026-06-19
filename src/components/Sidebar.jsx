@@ -40,11 +40,10 @@ export default function Sidebar({
   onLoad,
   onError,
   error,
+  headsetCount = 0,
+  extraChannels = [],
+  legend = [],
 }) {
-  const withPos = recording
-    ? recording.channelNames.filter((n) => MONTAGE_NAMES.has(n)).length
-    : 0;
-
   return (
     <aside className="flex w-72 shrink-0 flex-col gap-6 overflow-y-auto border-r border-ink-700 bg-ink-850 p-5">
       <div>
@@ -58,33 +57,9 @@ export default function Sidebar({
 
       <section className="space-y-3">
         <SectionLabel>signal</SectionLabel>
-        <Slider
-          label="gain"
-          value={gain}
-          min={5}
-          max={1000}
-          step={5}
-          unit=" µV"
-          onChange={setGain}
-        />
-        <Slider
-          label="window"
-          value={windowSeconds}
-          min={2}
-          max={30}
-          step={1}
-          unit=" s"
-          onChange={setWindowSeconds}
-        />
-        <Slider
-          label="color range"
-          value={colorRange}
-          min={10}
-          max={120}
-          step={5}
-          unit=" µV"
-          onChange={setColorRange}
-        />
+        <Slider label="gain" value={gain} min={5} max={250} step={5} unit=" µV" onChange={setGain} />
+        <Slider label="window" value={windowSeconds} min={1} max={30} step={1} unit=" s" onChange={setWindowSeconds} />
+        <Slider label="color range" value={colorRange} min={10} max={120} step={5} unit=" µV" onChange={setColorRange} />
       </section>
 
       <section className="space-y-3">
@@ -92,8 +67,6 @@ export default function Sidebar({
         {recording ? (
           <dl className="space-y-1 font-mono text-xs text-bone-300">
             <Row k="name" v={truncate(recording.name, 22)} />
-            <Row k="channels" v={recording.channelNames.length} />
-            <Row k="mapped" v={`${withPos} / ${recording.channelNames.length}`} />
             <Row k="rate" v={`${recording.sfreq} Hz`} />
             <Row k="length" v={`${recording.duration.toFixed(1)} s`} />
           </dl>
@@ -109,6 +82,51 @@ export default function Sidebar({
       </section>
 
       <section className="space-y-3">
+        <SectionLabel>channels</SectionLabel>
+        <dl className="space-y-1 font-mono text-xs text-bone-300">
+          <Row k="headset (shown)" v={headsetCount} />
+          <Row k="extra (hidden)" v={extraChannels.length} />
+        </dl>
+        {extraChannels.length > 0 && (
+          <div className="space-y-1">
+            <p className="font-mono text-[10px] text-bone-500">
+              optional electrodes, not on the head or traces:
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {extraChannels.map((n) => (
+                <span
+                  key={n}
+                  className="rounded border border-ink-600 px-1.5 py-0.5 font-mono text-[10px] text-bone-500"
+                >
+                  {n}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <SectionLabel>markers</SectionLabel>
+        {legend.length > 0 ? (
+          <ul className="space-y-1">
+            {legend.map((m) => (
+              <li key={m.label} className="flex items-center gap-2 font-mono text-xs">
+                <span
+                  className="inline-block h-3 w-3 shrink-0 rounded-sm"
+                  style={{ backgroundColor: m.color }}
+                />
+                <span className="flex-1 truncate text-bone-300">{m.label}</span>
+                <span className="text-bone-500">{m.count}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="font-mono text-xs text-bone-500">no markers in this file</p>
+        )}
+      </section>
+
+      <section className="space-y-3">
         <SectionLabel>load your data</SectionLabel>
         <FileLoader onLoad={onLoad} onError={onError} />
         {error && (
@@ -119,11 +137,10 @@ export default function Sidebar({
       </section>
 
       <section className="mt-auto space-y-2 border-t border-ink-700 pt-4">
-        <SectionLabel>next</SectionLabel>
+        <SectionLabel>shortcuts</SectionLabel>
         <p className="font-mono text-[10px] leading-relaxed text-bone-500">
-          point this at your NeuroSignal API: POST a file to /v1/preprocess,
-          poll the job, then load the cleaned result here to compare raw vs
-          clean.
+          space = play / pause · scroll over traces = zoom time · shift+scroll =
+          zoom amplitude · drag head to rotate
         </p>
       </section>
     </aside>

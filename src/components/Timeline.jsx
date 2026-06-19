@@ -83,9 +83,12 @@ export default function Timeline({
         {markers.map((m, i) => (
           <div
             key={i}
-            title={m.label}
-            className="absolute top-1/2 h-2 w-px -translate-y-1/2 bg-[#c4565640]"
-            style={{ left: `${(m.time / duration) * 100}%` }}
+            title={`${m.label} @ ${m.time.toFixed(2)}s`}
+            className="absolute top-1/2 h-4 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-sm"
+            style={{
+              left: `${(m.time / duration) * 100}%`,
+              backgroundColor: m.color || "#c45656",
+            }}
           />
         ))}
         <div

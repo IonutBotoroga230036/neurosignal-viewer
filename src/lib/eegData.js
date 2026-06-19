@@ -66,9 +66,9 @@ export function generateSimulatedRecording({
     }
   }
 
-  const markers = blinkTimes.map((t, i) => ({
+  const markers = blinkTimes.map((t) => ({
     time: t,
-    label: `blink ${i + 1}`,
+    label: "blink",
   }));
 
   return {

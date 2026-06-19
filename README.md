@@ -27,6 +27,37 @@ npm run build      # production bundle into dist/
 npm run preview     # serve the built bundle
 ```
 
+## Controls
+
+- Space toggles play/pause (ignored while typing in a field).
+- Scroll over the traces zooms the time window; Shift+scroll zooms amplitude.
+- Drag the head to rotate, scroll to zoom (it pulls back further now).
+- Drag the timeline to scrub. Markers show as colored ticks.
+
+## Markers
+
+Imported files bring their own events: BioSemi BDF trigger codes (read off the
+Status channel as rising edges) and EDF+/BDF+ annotations. Each distinct event
+label gets a stable color (see the legend in the sidebar) so the same event
+type reads the same on the timeline and across the traces.
+
+## Headset vs extra channels
+
+Only electrodes that exist in the montage (the headset) render on the 3D head
+and in the traces. Any other channels a file carries (externals, EOG, status,
+spare references) are listed separately in the sidebar's channels panel rather
+than cluttering the views.
+
+## Settings panel (planned)
+
+User-tunable settings will live in one place so a panel can edit them live. The
+seam already exists: the marker palette is in `src/lib/markers.js` and
+`assignMarkerColors()` accepts a custom palette. The clean next step is a
+settings store (React context or a small zustand store) holding marker colors,
+electrode size, default gain/window/color-range, and the trace color, with the
+panel reading and writing that store. Keep montage.js out of it: positions are
+ground truth, not a preference.
+
 ## How it's wired
 
 The playhead (current time, in seconds) lives in a single ref, not React state.
