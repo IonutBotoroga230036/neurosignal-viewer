@@ -58,7 +58,7 @@ export default function Sidebar({
       <section className="space-y-3">
         <SectionLabel>signal</SectionLabel>
         <Slider label="gain" value={gain} min={5} max={250} step={5} unit=" µV" onChange={setGain} />
-        <Slider label="window" value={windowSeconds} min={1} max={30} step={1} unit=" s" onChange={setWindowSeconds} />
+        <Slider label="window" value={windowSeconds} min={0.1} max={30} step={0.1} unit=" s" onChange={setWindowSeconds} />
         <Slider label="color range" value={colorRange} min={10} max={120} step={5} unit=" µV" onChange={setColorRange} />
       </section>
 

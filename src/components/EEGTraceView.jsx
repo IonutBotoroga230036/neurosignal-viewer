@@ -1,31 +1,31 @@
 import { useRef, useEffect } from "react";
 
+const LABEL_W = 52;
+
 // ActiView-style stacked traces. Reads the playhead each frame from a ref so it
-// never re-renders React during playback. Scroll wheel zooms: time by default,
-// amplitude (gain) with Shift held. Only the channels in `channelIndices` draw.
+// never re-renders React during playback.
+//   - scroll wheel zooms: time by default, amplitude (gain) with Shift
+//   - click + drag pans through time (works paused or playing)
+//   - markers draw as colored lines with their code/label at the base
 
 export default function EEGTraceView({
   recording,
   playheadRef,
   gain,
   windowSeconds,
-  channelIndices, // indices into recording.data to display
-  markers = [],   // colored markers: { time, label, color }
+  channelIndices,
+  markers = [],
   setGain,
   setWindowSeconds,
+  seek,
 }) {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
 
   const stateRef = useRef({});
   stateRef.current = {
-    recording,
-    gain,
-    windowSeconds,
-    channelIndices,
-    markers,
-    setGain,
-    setWindowSeconds,
+    recording, gain, windowSeconds, channelIndices, markers,
+    setGain, setWindowSeconds, seek,
   };
 
   useEffect(() => {
@@ -47,8 +47,9 @@ export default function EEGTraceView({
     const ro = new ResizeObserver(resize);
     ro.observe(wrap);
 
-    // scroll wheel: zoom time (plain) or gain (shift)
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+    // scroll wheel: zoom time (plain) or gain (shift)
     const onWheel = (e) => {
       e.preventDefault();
       const st = stateRef.current;
@@ -61,51 +62,82 @@ export default function EEGTraceView({
     };
     wrap.addEventListener("wheel", onWheel, { passive: false });
 
+    // drag to pan through time
+    let dragging = false, startX = 0, startPlayhead = 0;
+    const plotW = () => wrap.getBoundingClientRect().width - LABEL_W;
+    const onDown = (e) => {
+      dragging = true;
+      startX = e.clientX;
+      startPlayhead = playheadRef.current;
+      wrap.setPointerCapture(e.pointerId);
+      wrap.style.cursor = "grabbing";
+    };
+    const onMove = (e) => {
+      if (!dragging) return;
+      const st = stateRef.current;
+      const dt = -((e.clientX - startX) / plotW()) * st.windowSeconds;
+      st.seek?.(startPlayhead + dt);
+    };
+    const onUp = (e) => {
+      dragging = false;
+      wrap.releasePointerCapture(e.pointerId);
+      wrap.style.cursor = "grab";
+    };
+    wrap.style.cursor = "grab";
+    wrap.addEventListener("pointerdown", onDown);
+    wrap.addEventListener("pointermove", onMove);
+    wrap.addEventListener("pointerup", onUp);
+
     const draw = () => {
-      const { recording, gain, windowSeconds, channelIndices, markers } =
-        stateRef.current;
+      const { recording, gain, windowSeconds, channelIndices, markers } = stateRef.current;
       const rect = wrap.getBoundingClientRect();
       const W = rect.width, H = rect.height;
       ctx.clearRect(0, 0, W, H);
-      if (!recording) {
-        raf = requestAnimationFrame(draw);
-        return;
-      }
+      if (!recording) { raf = requestAnimationFrame(draw); return; }
 
       const idx =
         channelIndices && channelIndices.length
           ? channelIndices
           : recording.channelNames.map((_, i) => i);
 
-      const labelW = 52, axisH = 18;
-      const plotW = W - labelW, plotH = H - axisH;
+      const axisH = 18;
+      const plotWidth = W - LABEL_W, plotH = H - axisH;
       const { sfreq, duration, data, channelNames } = recording;
       const C = idx.length;
       const bandH = plotH / C;
 
       const tEnd = playheadRef.current;
-      const playheadX = labelW + plotW * 0.85;
+      const playheadX = LABEL_W + plotWidth * 0.85;
       const tStart = tEnd - windowSeconds * 0.85;
       const tWindowEnd = tStart + windowSeconds;
-      const timeToX = (time) => labelW + ((time - tStart) / windowSeconds) * plotW;
+      const timeToX = (time) => LABEL_W + ((time - tStart) / windowSeconds) * plotWidth;
 
       for (let c = 0; c < C; c++) {
         if (c % 2 === 0) {
           ctx.fillStyle = "rgba(255,255,255,0.015)";
-          ctx.fillRect(labelW, c * bandH, plotW, bandH);
+          ctx.fillRect(LABEL_W, c * bandH, plotWidth, bandH);
         }
       }
 
-      // markers (colored), drawn full height
+      // markers: colored line + code/label at the base
+      ctx.textBaseline = "bottom";
+      ctx.font = "9px 'JetBrains Mono', monospace";
       for (const m of markers) {
         if (m.time < tStart || m.time > tWindowEnd) continue;
         const x = timeToX(m.time);
-        ctx.strokeStyle = m.color || "#c4565699";
+        if (x < LABEL_W) continue;
+        ctx.strokeStyle = m.color || "#c45656";
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(x, 0);
         ctx.lineTo(x, plotH);
         ctx.stroke();
+        ctx.fillStyle = m.color || "#c45656";
+        const text = m.code != null ? String(m.code) : m.label;
+        ctx.save();
+        ctx.translate(x + 2, plotH - 2);
+        ctx.fillText(text, 0, 0);
+        ctx.restore();
       }
 
       // traces
@@ -113,7 +145,7 @@ export default function EEGTraceView({
       ctx.strokeStyle = "#c9c6bd";
       const i0 = Math.max(0, Math.floor(tStart * sfreq));
       const i1 = Math.min(recording.nSamples - 1, Math.ceil(tWindowEnd * sfreq));
-      const step = Math.max(1, Math.floor((i1 - i0) / Math.max(1, plotW)));
+      const step = Math.max(1, Math.floor((i1 - i0) / Math.max(1, plotWidth)));
 
       for (let c = 0; c < C; c++) {
         const mid = c * bandH + bandH / 2;
@@ -166,6 +198,9 @@ export default function EEGTraceView({
       cancelAnimationFrame(raf);
       ro.disconnect();
       wrap.removeEventListener("wheel", onWheel);
+      wrap.removeEventListener("pointerdown", onDown);
+      wrap.removeEventListener("pointermove", onMove);
+      wrap.removeEventListener("pointerup", onUp);
     };
   }, [playheadRef]);
 

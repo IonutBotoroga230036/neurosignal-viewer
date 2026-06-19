@@ -1,127 +1,151 @@
 # NeuroSignal Viewer
 
-A browser EEG visualizer: a scrolling 64-channel trace view (ActiView style) on
-the left, a 3D electrode topography on the right, and a shared transport bar that
-scrubs both at once. Loads a simulated recording on first run so you can see it
-work immediately, and reads generic EEG CSV files for your own data.
+A browser EEG workstation. You sign in, organise recordings into projects,
+import participant files, and inspect each recording as a scrolling multi-channel
+trace view alongside a live 3D scalp topography. A non-destructive preprocessing
+pipeline (DC removal, filters, re-referencing) is applied at view time and can be
+toggled, reordered, and scoped to one participant or the whole project, the way
+BrainVision Analyzer treats its operation list.
 
-This is the visual front end for the NeuroSignal platform. It runs fully offline
-against local files today, and is structured to later call the NeuroSignal API
-(`/v1/preprocess`) so you can compare raw vs cleaned signal side by side.
+This is the front end for the NeuroSignal platform. It runs fully in the browser
+today and is structured so the heavy and sensitive parts (real auth, batch
+processing, format reading like FIF) move to your backend later without the UI
+changing.
 
 ## Run it
 
-You need Node 18+ (you have it if `node --version` prints v18 or higher).
+Node 18+ required (`node --version`). From the project folder:
 
 ```bash
 npm install
-npm run dev
+npm run dev      # opens http://localhost:5173
 ```
 
-That opens http://localhost:5173. You should see 64 traces scrolling and the
-electrode spheres on the 3D head pulsing with the signal. Drag the head to
-rotate, scroll to zoom, drag the timeline to scrub, press play.
+Edit any file in `src/` and the browser hot-reloads. You only restart `npm run
+dev` for config changes (vite/tailwind) or new dependencies.
 
 ```bash
-npm run build      # production bundle into dist/
-npm run preview     # serve the built bundle
+npm run build    # production bundle into dist/
+npm run preview  # serve the built bundle
 ```
+
+## Using it
+
+1. Create an account (testing only, see the security note below) and sign in.
+2. Create a project. Projects keep their participants and pipeline together.
+3. Import data: `+ files` for individual recordings, `+ folder` for a whole
+   directory (only `.edf .bdf .fif .csv` are kept). Each file becomes a
+   participant. `+ simulated` adds a synthetic 64-channel recording to test with.
+4. Click a participant to view it.
+5. Build a preprocessing pipeline (it starts with high-pass, notch, low-pass).
+   Toggle steps with the checkbox, reorder with the arrows, edit cutoffs inline.
 
 ## Controls
 
-- Space toggles play/pause (ignored while typing in a field).
-- Scroll over the traces zooms the time window; Shift+scroll zooms amplitude.
-- Drag the head to rotate, scroll to zoom (it pulls back further now).
-- Drag the timeline to scrub. Markers show as colored ticks.
+- Space: play / pause.
+- Scroll over the traces: zoom the time window. Shift+scroll: zoom amplitude.
+- Click and drag the traces: scrub through time (works paused or playing).
+- Drag the head: rotate. Scroll over it: zoom.
+- Drag the timeline: jump. Markers appear there as colored ticks.
+
+## Preprocessing pipeline
+
+Raw EEG (especially BioSemi BDF) carries a large per-channel DC offset, so raw
+traces sit far off their channel band and look misaligned. The pipeline fixes
+this and more. It is non-destructive: the original samples are never changed; the
+steps run in order on a copy each time you change them.
+
+Steps available: DC offset removal, linear detrend, high-pass, low-pass, notch
+(line noise), and common average reference. Filters are zero-phase (forward +
+backward biquads), which is what EEG analysis expects.
+
+Scope: the pipeline is saved per project and applied to every participant. Switch
+the scope toggle to "this participant" to give the selected recording its own
+override (shown with an `override` tag in the participant list); "reset to project
+pipeline" removes the override.
+
+Note: filtering runs in the browser on the full recording when you change the
+pipeline. That is fine for single files but will be slow on very large ones, and
+batch-processing an entire dataset belongs on the backend, not here. The pipeline
+you build is the portable recipe to hand to that backend.
 
 ## Markers
 
-Imported files bring their own events: BioSemi BDF trigger codes (read off the
-Status channel as rising edges) and EDF+/BDF+ annotations. Each distinct event
-label gets a stable color (see the legend in the sidebar) so the same event
-type reads the same on the timeline and across the traces.
+Imported files bring their own events: BioSemi BDF trigger codes (rising edges on
+the Status channel) and EDF+/BDF+ annotations. Each distinct label gets a stable
+color, shown in the sidebar legend, on the timeline, and labelled at the base of
+each event line in the traces.
 
 ## Headset vs extra channels
 
-Only electrodes that exist in the montage (the headset) render on the 3D head
-and in the traces. Any other channels a file carries (externals, EOG, status,
-spare references) are listed separately in the sidebar's channels panel rather
-than cluttering the views.
+Only montage electrodes (the headset) render on the head and in the traces. Other
+channels a file carries (externals, EOG, status, spare references) are listed in
+the sidebar's channels panel rather than cluttering the views.
 
-## Settings panel (planned)
+## Data model
 
-User-tunable settings will live in one place so a panel can edit them live. The
-seam already exists: the marker palette is in `src/lib/markers.js` and
-`assignMarkerColors()` accepts a custom palette. The clean next step is a
-settings store (React context or a small zustand store) holding marker colors,
-electrode size, default gain/window/color-range, and the trace color, with the
-panel reading and writing that store. Keep montage.js out of it: positions are
-ground truth, not a preference.
+The whole UI consumes one shape, the Recording:
 
-## How it's wired
+```
+{ channelNames: string[], sfreq, nSamples, data: Float32Array[] (µV),
+  duration, markers: [{ time, label, code? }] }
+```
 
-The playhead (current time, in seconds) lives in a single ref, not React state.
-The trace canvas and the 3D view each read it every frame in their own loops, so
-playback stays at 60fps without re-rendering React 64 times a second. Only coarse
-controls (gain, window, play/pause, the loaded recording) go through React state.
+The simulator, the CSV/EDF/BDF parsers, the pipeline, and (later) an API response
+all produce this shape, so nothing downstream cares where it came from.
+
+## Architecture
 
 ```
 src/
   lib/
-    montage.js     real BioSemi-64 electrode coordinates (10-10 system)
-    eegData.js     Recording shape, simulated generator, amplitude→color
-    formats.js     detect format → route to a loader (the registry)
-    csvParser.js   CSV → Recording
-    edf.js         EDF/BDF binary reader → Recording
-    fif.js         FIF loader (routes to the API)
-  hooks/
-    usePlayback.js the rAF playhead loop
+    store.js     accounts + projects in localStorage (testing)
+    idb.js       imported file blobs in IndexedDB (persist across reloads)
+    formats.js   detect format -> route to a loader (registry)
+    edf.js       EDF/BDF reader + marker extraction
+    csvParser.js CSV -> Recording
+    fif.js       FIF loader (routes to the backend)
+    dsp.js       filters + applyPipeline (non-destructive)
+    pipeline.js  step definitions + default pipeline
+    markers.js   stable colors per event label
+    montage.js   sphere-fit BioSemi-64 electrode positions
+    eegData.js   Recording shape, simulator, amplitude->color
+  hooks/usePlayback.js   the rAF playhead (no per-frame React renders)
   components/
-    EEGTraceView.jsx   2D scrolling traces (Canvas)
+    Login.jsx          sign in / sign up
+    Projects.jsx       project list + create
+    Workspace.jsx      participants, pipeline, and the viewer
+    PipelinePanel.jsx  toggle / reorder / edit steps
+    EEGTraceView.jsx   2D traces (canvas): zoom, pan, markers
     BrainView3D.jsx    3D topography (react-three-fiber)
     Timeline.jsx       transport + scrubber + markers
-    Sidebar.jsx        controls + data loading
-    FileLoader.jsx     drop zone
-  App.jsx          layout + state
+  App.jsx              router: login -> projects -> workspace
 ```
 
-The whole UI consumes one data shape, the Recording (see `eegData.js`). Anything
-that can produce that shape (the simulator, the CSV parser, later an API
-response) plugs straight in.
+The playhead lives in a single ref. The trace canvas and the 3D view each read it
+every frame in their own loop, so playback holds 60fps with 64 channels without
+re-rendering React. Only coarse state (gain, window, pipeline, selection) goes
+through React.
 
-## Loading your own data
+## Security and persistence (read this)
 
-Drop a file in the sidebar. The format is detected from the extension (with a
-magic-byte fallback) and routed to the right loader:
+Accounts are stored UNENCRYPTED in localStorage. This exists only to build out the
+multi-user flow; it is not real authentication. Do not put anything sensitive
+behind it. The intended path is your FastAPI backend with proper auth, RBAC, and a
+SQL database; every function in `store.js` maps to an endpoint you can swap in
+without touching the UI.
 
-- `.edf` / `.bdf` parse directly in the browser, no server needed. BioSemi BDF
-  (what ActiView exports) works, and non-signal channels like Status are dropped
-  automatically.
-- `.fif` is read server-side via MNE. The loader is stubbed with the fetch ready
-  to uncomment once your NeuroSignal endpoint returns the Recording shape.
-- `.csv` needs the sampling rate (the field in the sidebar), since a plain CSV
-  can't carry it. First row is channel names, one row per sample, values in µV.
-
-Channels whose names match the 10-10 montage (Fp1, Cz, O2, ...) light up on the
-3D head; unknown names still show in the trace view. The sidebar shows how many
-of your channels were mapped to positions.
-
-Adding a format later is one line. Write an `async (file, options) => Recording`
-loader and register it:
-
-```js
-import { registerLoader } from "./lib/formats.js";
-registerLoader("gdf", loadGDF);
-```
+Imported files are stored as blobs in IndexedDB so projects survive a reload.
+They live in that one browser. Clearing site data removes them.
 
 ## Where this goes next
 
-- Wire the sidebar's load flow to your NeuroSignal `/v1/preprocess` endpoint.
-- Add `.edf` / `.bdf` / `.fif` reading (do it server-side via MNE and return the
-  Recording shape as JSON; the browser stays format-agnostic).
-- The head is a procedural ellipsoid (nose + ears for orientation), so there's
-  no external asset to load. Drop in a real GLTF head or cortical mesh later by
-  replacing `Head()` in BrainView3D.jsx; keep electrode placement going through
-  `onScalp()` so the sensors stay on whatever surface you use.
-- Topographic surface interpolation between electrodes (right now color lives on
-  the electrodes themselves, which is honest and fast).
+- Move auth and projects to the backend (RBAC + SQL); `store.js` is the seam.
+- Run filtering in a Web Worker so large files don't block the UI.
+- Real batch processing and `.fif` reading on the backend (return the Recording
+  shape as JSON); `fif.js` already has the fetch stubbed.
+- Export filtered recordings (download, or via the backend) once batch lands.
+- A settings panel over the existing seams: marker palette (`markers.js`),
+  electrode size and spread (`BrainView3D.jsx`), default gain/window.
+- Group multiple files (runs/sessions) under one participant when needed; today
+  one file is one participant.

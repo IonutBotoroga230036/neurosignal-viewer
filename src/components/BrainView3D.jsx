@@ -18,7 +18,6 @@ function compress(pos, spread) {
 }
 
 function Electrodes({ recording, playheadRef, colorRange, onHover }) {
-  // electrodes that exist both in the montage and in the loaded recording
   const electrodes = useMemo(() => {
     const list = [];
     recording.channelNames.forEach((name, channelIndex) => {
@@ -47,6 +46,7 @@ function Electrodes({ recording, playheadRef, colorRange, onHover }) {
       const [r, g, b] = amplitudeToColor(v, colorRange);
       scratch.setRGB(r / 255, g / 255, b / 255);
       mat.color.copy(scratch);
+      mat.emissive.copy(scratch); // glow a little so color reads in shadow
     }
   });
 
@@ -56,17 +56,15 @@ function Electrodes({ recording, playheadRef, colorRange, onHover }) {
         <mesh
           key={e.name}
           position={e.position}
-          onPointerOver={(ev) => {
-            ev.stopPropagation();
-            onHover(e);
-          }}
+          onPointerOver={(ev) => { ev.stopPropagation(); onHover(e); }}
           onPointerOut={() => onHover(null)}
         >
           <sphereGeometry args={[0.045, 16, 16]} />
           <meshStandardMaterial
             ref={(m) => (matRefs.current[i] = m)}
-            roughness={0.5}
+            roughness={0.4}
             metalness={0.1}
+            emissiveIntensity={0.35}
           />
         </mesh>
       ))}
@@ -107,9 +105,13 @@ export default function BrainView3D({ recording, playheadRef, colorRange = 40 })
 
   return (
     <div className="relative h-full w-full">
+      {/* lower ambient + a key and rim light so the sphere actually reads as 3D.
+          (the old wireframe used meshBasicMaterial, which ignores lights entirely.) */}
       <Canvas camera={{ position: [0, 1.1, 2.8], fov: 45 }} dpr={[1, 2]}>
-        <ambientLight intensity={0.7} />
-        <directionalLight position={[3, 4, 5]} intensity={0.6} />
+        <hemisphereLight args={["#44444f", "#0a0a0b", 0.4]} />
+        <ambientLight intensity={0.2} />
+        <directionalLight position={[3, 5, 4]} intensity={0.9} />
+        <directionalLight position={[-4, 1, -3]} intensity={0.4} color="#88aaff" />
         <Head />
         {recording && (
           <Electrodes
@@ -119,12 +121,7 @@ export default function BrainView3D({ recording, playheadRef, colorRange = 40 })
             onHover={setHovered}
           />
         )}
-        <OrbitControls
-          enablePan={false}
-          minDistance={1.3}
-          maxDistance={7}
-          rotateSpeed={0.6}
-        />
+        <OrbitControls enablePan={false} minDistance={1.3} maxDistance={7} rotateSpeed={0.6} />
       </Canvas>
 
       <div className="pointer-events-none absolute left-3 top-3 font-mono text-[10px] uppercase tracking-widest text-bone-500">
