@@ -18,7 +18,7 @@ export default function PipelinePanel({ pipeline, onChange, processing }) {
   const setParam = (i, key, value) =>
     update(
       pipeline.map((s, k) =>
-        k === i ? { ...s, params: { ...s.params, [key]: Number(value) } } : s
+        k === i ? { ...s, params: { ...s.params, [key]: value } } : s
       )
     );
   const add = (type) => {
@@ -60,21 +60,39 @@ export default function PipelinePanel({ pipeline, onChange, processing }) {
                 <button onClick={() => remove(i)} className="px-1 font-mono text-[11px] text-bone-500 hover:text-[#d98a8a]" title="remove">✕</button>
               </div>
               {def.params.length > 0 && (
-                <div className="mt-1.5 flex flex-wrap gap-2 pl-5">
-                  {def.params.map((p) => (
-                    <label key={p.key} className="flex items-center gap-1 font-mono text-[10px] text-bone-500">
-                      <input
-                        type="number"
-                        value={step.params[p.key]}
-                        min={p.min}
-                        max={p.max}
-                        step={p.step}
-                        onChange={(e) => setParam(i, p.key, e.target.value)}
-                        className="w-14 rounded border border-ink-600 bg-ink-900 px-1 py-0.5 text-bone-100 focus:border-bone-500 focus:outline-none"
-                      />
-                      {p.label}
-                    </label>
-                  ))}
+                <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-5">
+                  {def.params.map((p) => {
+                    if (p.when && !Object.entries(p.when).every(([k, v]) => step.params[k] === v)) {
+                      return null;
+                    }
+                    if (p.type === "select") {
+                      return (
+                        <select key={p.key} value={step.params[p.key]}
+                          onChange={(e) => setParam(i, p.key, e.target.value)}
+                          className="rounded border border-ink-600 bg-ink-900 px-1 py-0.5 font-mono text-[10px] text-bone-100 focus:border-bone-500 focus:outline-none">
+                          {p.options.map((o) => <option key={o} value={o}>{o}</option>)}
+                        </select>
+                      );
+                    }
+                    if (p.type === "text") {
+                      return (
+                        <label key={p.key} className="flex items-center gap-1 font-mono text-[10px] text-bone-500">
+                          <input type="text" value={step.params[p.key]}
+                            onChange={(e) => setParam(i, p.key, e.target.value)}
+                            className="w-24 rounded border border-ink-600 bg-ink-900 px-1 py-0.5 text-bone-100 focus:border-bone-500 focus:outline-none" />
+                          {p.label}
+                        </label>
+                      );
+                    }
+                    return (
+                      <label key={p.key} className="flex items-center gap-1 font-mono text-[10px] text-bone-500">
+                        <input type="number" value={step.params[p.key]} min={p.min} max={p.max} step={p.step}
+                          onChange={(e) => setParam(i, p.key, Number(e.target.value))}
+                          className="w-14 rounded border border-ink-600 bg-ink-900 px-1 py-0.5 text-bone-100 focus:border-bone-500 focus:outline-none" />
+                        {p.label}
+                      </label>
+                    );
+                  })}
                 </div>
               )}
             </li>

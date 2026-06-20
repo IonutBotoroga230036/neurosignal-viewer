@@ -18,6 +18,7 @@ export default function EEGTraceView({
   setGain,
   setWindowSeconds,
   seek,
+  markerFontSize = 9,
 }) {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
@@ -25,7 +26,7 @@ export default function EEGTraceView({
   const stateRef = useRef({});
   stateRef.current = {
     recording, gain, windowSeconds, channelIndices, markers,
-    setGain, setWindowSeconds, seek,
+    setGain, setWindowSeconds, seek, markerFontSize,
   };
 
   useEffect(() => {
@@ -89,7 +90,7 @@ export default function EEGTraceView({
     wrap.addEventListener("pointerup", onUp);
 
     const draw = () => {
-      const { recording, gain, windowSeconds, channelIndices, markers } = stateRef.current;
+      const { recording, gain, windowSeconds, channelIndices, markers, markerFontSize } = stateRef.current;
       const rect = wrap.getBoundingClientRect();
       const W = rect.width, H = rect.height;
       ctx.clearRect(0, 0, W, H);
@@ -121,7 +122,7 @@ export default function EEGTraceView({
 
       // markers: colored line + code/label at the base
       ctx.textBaseline = "bottom";
-      ctx.font = "9px 'JetBrains Mono', monospace";
+      ctx.font = `${markerFontSize || 9}px 'JetBrains Mono', monospace`;
       for (const m of markers) {
         if (m.time < tStart || m.time > tWindowEnd) continue;
         const x = timeToX(m.time);

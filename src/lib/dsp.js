@@ -126,8 +126,11 @@ export function applyPipeline(recording, steps) {
       case "notch":
         data = data.map((ch) => filtfilt(ch, notchCoeffs(step.params.freq, sfreq)));
         break;
-      case "car":
-        applyCAR(data);
+      case "car": // legacy alias
+        applyReference(data, recording.channelNames, { mode: "average" });
+        break;
+      case "reference":
+        applyReference(data, recording.channelNames, step.params);
         break;
       default:
         break;
@@ -137,15 +140,37 @@ export function applyPipeline(recording, steps) {
   return { ...recording, data, _filtered: true };
 }
 
-// common average reference: subtract the across-channel mean at each sample
-function applyCAR(data) {
+// Re-reference. mode "average" = common average reference (mean of all
+// channels). mode "channels" = subtract the mean of the named reference
+// electrodes (e.g. M1, M2 linked mastoids). Names not present are ignored.
+function applyReference(data, channelNames, params) {
   const C = data.length;
   if (!C) return;
   const T = data[0].length;
+
+  let refIdx;
+  if (params.mode === "channels") {
+    const wanted = String(params.channels || "")
+      .split(/[,\s]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    refIdx = wanted
+      .map((name) => channelNames.indexOf(name))
+      .filter((i) => i >= 0);
+    if (!refIdx.length) return; // nothing to reference to; leave data unchanged
+  } else {
+    refIdx = null; // average over all
+  }
+
   for (let t = 0; t < T; t++) {
     let mean = 0;
-    for (let c = 0; c < C; c++) mean += data[c][t];
-    mean /= C;
+    if (refIdx) {
+      for (const i of refIdx) mean += data[i][t];
+      mean /= refIdx.length;
+    } else {
+      for (let c = 0; c < C; c++) mean += data[c][t];
+      mean /= C;
+    }
     for (let c = 0; c < C; c++) data[c][t] -= mean;
   }
 }

@@ -3,11 +3,14 @@ import EEGTraceView from "./EEGTraceView.jsx";
 import BrainView3D from "./BrainView3D.jsx";
 import Timeline from "./Timeline.jsx";
 import PipelinePanel from "./PipelinePanel.jsx";
+import SettingsPanel from "./SettingsPanel.jsx";
 import { usePlayback } from "../hooks/usePlayback.js";
 import { assignMarkerColors } from "../lib/markers.js";
 import { generateSimulatedRecording } from "../lib/eegData.js";
 import { applyPipeline } from "../lib/dsp.js";
 import { defaultPipeline } from "../lib/pipeline.js";
+import { loadSettings, saveSettings } from "../lib/settings.js";
+import { downloadRecordingCSV } from "../lib/exporter.js";
 import { CHANNEL_NAMES } from "../lib/montage.js";
 import { loadFile } from "../lib/formats.js";
 import { putFile, getFile } from "../lib/idb.js";
@@ -37,6 +40,10 @@ export default function Workspace({ user, project: initialProject, onBack, onLog
   const [gain, setGain] = useState(50);
   const [windowSeconds, setWindowSeconds] = useState(8);
   const [colorRange, setColorRange] = useState(40);
+
+  const [settings, setSettingsState] = useState(() => loadSettings(user));
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const updateSettings = (next) => { setSettingsState(next); saveSettings(user, next); };
 
   const durationRef = useRef(0);
   const { playheadRef, isPlaying, setIsPlaying, toggle, speed, setSpeed, seek } =
@@ -165,9 +172,12 @@ export default function Workspace({ user, project: initialProject, onBack, onLog
       if (HEADSET.has(name)) headsetIndices.push(i);
       else extraChannels.push(name);
     });
-    const { markers, legend } = assignMarkerColors(filtered.markers || []);
+    const { markers, legend } = assignMarkerColors(filtered.markers || [], {
+      overrides: settings.markerColors,
+      hidden: settings.hiddenMarkers,
+    });
     return { headsetIndices, extraChannels, markers, legend };
-  }, [filtered]);
+  }, [filtered, settings.markerColors, settings.hiddenMarkers]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-ink-900 text-bone-100">
@@ -182,9 +192,14 @@ export default function Workspace({ user, project: initialProject, onBack, onLog
               {project.name}
             </h1>
           </div>
-          <button onClick={onLogout} className="font-mono text-[10px] text-bone-500 hover:text-bone-300">
-            log out
-          </button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSettingsOpen(true)} className="font-mono text-[10px] text-bone-500 hover:text-bone-300">
+              settings
+            </button>
+            <button onClick={onLogout} className="font-mono text-[10px] text-bone-500 hover:text-bone-300">
+              log out
+            </button>
+          </div>
         </div>
 
         {/* participants */}
@@ -332,9 +347,17 @@ export default function Workspace({ user, project: initialProject, onBack, onLog
                   <span className="font-mono text-[10px] uppercase tracking-widest text-bone-500">
                     {selected.name}
                   </span>
-                  <span className="font-mono text-[10px] text-bone-500">
-                    {headsetIndices.length} traces · {processing ? "filtering…" : "filtered"}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-[10px] text-bone-500">
+                      {headsetIndices.length} traces · {processing ? "filtering…" : "filtered"}
+                    </span>
+                    <button
+                      onClick={() => downloadRecordingCSV(filtered, `${selected.name.replace(/\.[^.]+$/, "")}_filtered.csv`)}
+                      className="rounded border border-ink-600 px-2 py-0.5 font-mono text-[10px] text-bone-300 transition hover:border-bone-500 hover:text-bone-100"
+                    >
+                      export csv
+                    </button>
+                  </div>
                 </div>
                 <div className="h-[calc(100%-33px)]">
                   <EEGTraceView
@@ -347,11 +370,18 @@ export default function Workspace({ user, project: initialProject, onBack, onLog
                     setGain={setGain}
                     setWindowSeconds={setWindowSeconds}
                     seek={seek}
+                    markerFontSize={settings.markerFontSize}
                   />
                 </div>
               </section>
               <section className="w-[42%] min-w-[320px] max-w-[560px]">
-                <BrainView3D recording={filtered} playheadRef={playheadRef} colorRange={colorRange} />
+                <BrainView3D
+                  recording={filtered}
+                  playheadRef={playheadRef}
+                  colorRange={colorRange}
+                  colorMode={settings.colorMode}
+                  bands={settings.bands}
+                />
               </section>
             </div>
             <Timeline
@@ -367,6 +397,15 @@ export default function Workspace({ user, project: initialProject, onBack, onLog
           </>
         )}
       </main>
+
+      {settingsOpen && (
+        <SettingsPanel
+          settings={settings}
+          onChange={updateSettings}
+          markerLabels={legend.map((l) => l.label)}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -5,22 +5,32 @@
 let idCounter = 0;
 const uid = () => `step_${Date.now()}_${idCounter++}`;
 
+// param descriptors: { key, label, type, default, ... }
+//   type "number"  -> numeric input (min/max/step)
+//   type "select"  -> dropdown (options: [value,...])
+//   type "text"    -> free text (e.g. comma-separated channel names)
 export const STEP_TYPES = {
   demean: { label: "DC offset removal", params: [] },
   detrend: { label: "Linear detrend", params: [] },
   highpass: {
     label: "High-pass filter",
-    params: [{ key: "freq", label: "Hz", default: 1, min: 0.1, max: 40, step: 0.1 }],
+    params: [{ key: "freq", label: "Hz", type: "number", default: 1, min: 0.1, max: 40, step: 0.1 }],
   },
   lowpass: {
     label: "Low-pass filter",
-    params: [{ key: "freq", label: "Hz", default: 40, min: 1, max: 200, step: 1 }],
+    params: [{ key: "freq", label: "Hz", type: "number", default: 40, min: 1, max: 200, step: 1 }],
   },
   notch: {
     label: "Notch (line noise)",
-    params: [{ key: "freq", label: "Hz", default: 50, min: 1, max: 100, step: 1 }],
+    params: [{ key: "freq", label: "Hz", type: "number", default: 50, min: 1, max: 100, step: 1 }],
   },
-  car: { label: "Common average reference", params: [] },
+  reference: {
+    label: "Re-reference",
+    params: [
+      { key: "mode", label: "", type: "select", default: "average", options: ["average", "channels"] },
+      { key: "channels", label: "ref channels", type: "text", default: "M1, M2", when: { mode: "channels" } },
+    ],
+  },
 };
 
 export function makeStep(type) {
@@ -32,9 +42,5 @@ export function makeStep(type) {
 
 // A reasonable default for raw EEG: kill DC + drift, remove line noise, band-limit.
 export function defaultPipeline() {
-  return [
-    makeStep("highpass"),
-    makeStep("notch"),
-    makeStep("lowpass"),
-  ];
+  return [makeStep("highpass"), makeStep("notch"), makeStep("lowpass")];
 }
